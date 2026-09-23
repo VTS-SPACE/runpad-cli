@@ -1,17 +1,27 @@
 {
   "name": "runpad-cli",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Universal Dev Runner & Port Sentinel",
   "main": "bin/index.js",
   "bin": {
     "runpad": "./bin/index.js"
   },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/VTS-SPACE/runpad-cli.git"
+  },
+  "bugs": {
+    "url": "https://github.com/VTS-SPACE/runpad-cli/issues"
+  },
+  "homepage": "https://github.com/VTS-SPACE/runpad-cli#readme",
   "keywords": [
     "runner",
     "devtools",
     "ports",
+    "sentinel",
     "fullstack",
-    "orchestrator"
+    "orchestrator",
+    "process-killer"
   ],
   "author": "VTS SPACE",
   "license": "MIT"
