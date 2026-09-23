@@ -4,7 +4,9 @@
 
 *One zero-dependency command to detect stacks, resolve port locks, and run servers.*
 
-[![License](LICENSE)](LICENSE) [![Package](package.json)](package.json)
+[![npm version](https://img.shields.io/npm/v/runpad-cli?style=flat-square)](https://www.npmjs.com/package/runpad-cli)
+[![npm downloads](https://img.shields.io/npm/dm/runpad-cli?style=flat-square)](https://www.npmjs.com/package/runpad-cli)
+[![License](https://img.shields.io/github/license/VTS-SPACE/runpad-cli?style=flat-square)](https://github.com/VTS-SPACE/runpad-cli/blob/main/LICENSE)
 
 ```bash
 npx runpad-cli
@@ -56,11 +58,11 @@ npm install -g runpad-cli
 | Command | Action | Example |
 | :--- | :--- | :--- |
 | `runpad` | Auto-detect stack, check target port, and launch dev server | `runpad` |
-| `runpad kill ` | Forcefully terminates the process tree locking a port | `runpad kill 5173` |
+| `runpad kill <port>` | Forcefully terminates the process tree locking a port | `runpad kill 5173` |
 | `runpad ports` | Live audit of common development ports and active PIDs | `runpad ports` |
 | `runpad -o`, `--open` | Automatically launches your default browser | `runpad -o` |
 | `runpad -h`, `--host` | Exposes dev server to your local network / Wi-Fi | `runpad -h` |
-| `runpad -p ` | Overrides default port with custom port assignment | `runpad -p 8080` |
+| `runpad -p <number>` | Overrides default port with custom port assignment | `runpad -p 8080` |
 | `runpad --help` | Displays CLI documentation and options | `runpad --help` |
 | `runpad -v`, `--version` | Prints installed version | `runpad -v` |
 
@@ -156,8 +158,8 @@ RunPad detects project markers and maps runtime execution automatically:
 
 RunPad carries **zero third-party dependencies**. It utilizes native Node.js core modules (`net`, `http`, `child_process`, and `fs`) to maintain a lightweight footprint:
 
-* **Windows:** Employs `netstat -ano` regular-expression inspection and recursive tree kills via `taskkill /F /T /PID `.
-* **macOS & Linux:** Employs POSIX socket lookups via `lsof -ti :` and hard termination via `kill -9 `.
+* **Windows:** Employs `netstat -ano` regular-expression inspection and recursive tree kills via `taskkill /F /T /PID <pid>`.
+* **macOS & Linux:** Employs POSIX socket lookups via `lsof -ti :<port>` and hard termination via `kill -9 <pid>`.
 
 ---
 
