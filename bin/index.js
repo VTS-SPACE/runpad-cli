@@ -20,6 +20,13 @@ const c = {
     red: '\x1b[31m',
 };
 
+// --- RECURSION GUARD ---
+// Agar RunPad ke andar se galti se RunPad spawn ho, toh loop yahin ruk jayega
+if (process.env.__RUNPAD_ACTIVE__ === 'true') {
+    console.error(`${c.red}❌ Recursion loop blocked: RunPad cannot spawn another RunPad process.${c.reset}`);
+    process.exit(1);
+}
+
 const args = process.argv.slice(2);
 const command = args[0];
 const currentDir = process.cwd();
@@ -28,13 +35,13 @@ const currentDir = process.cwd();
 function getVersion() {
     try {
         const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8'));
-        return pkg.version || '0.1.0';
+        return pkg.version || '0.1.3';
     } catch {
-        return '0.1.0';
+        return '0.1.3';
     }
 }
 
-// --- PORT & PROCESS MANAGEMENT UTILS ---
+// --- PORT & PROCESS UTILS ---
 
 function isPortTaken(port) {
     return new Promise((resolve) => {
@@ -72,7 +79,6 @@ function getPidOnPort(port) {
 function killProcess(pid) {
     try {
         if (process.platform === 'win32') {
-            // /F = Force, /T = Tree kill (child processes included)
             execSync(`taskkill /F /T /PID ${pid}`, { stdio: 'ignore' });
         } else {
             execSync(`kill -9 ${pid}`, { stdio: 'ignore' });
@@ -85,42 +91,58 @@ function killProcess(pid) {
 
 // --- BUILT-IN STATIC WEB SERVER ---
 
-function serveStatic(port, autoOpen) {
+function serveStatic(port, autoOpen, defaultDocument) {
     const mimeTypes = {
-        '.html': 'text/html',
-        '.css': 'text/css',
-        '.js': 'application/javascript',
-        '.json': 'application/json',
+        '.html': 'text/html; charset=utf-8',
+        '.css': 'text/css; charset=utf-8',
+        '.js': 'application/javascript; charset=utf-8',
+        '.json': 'application/json; charset=utf-8',
         '.png': 'image/png',
         '.jpg': 'image/jpeg',
+        '.jpeg': 'image/jpeg',
         '.svg': 'image/svg+xml',
         '.ico': 'image/x-icon',
+        '.pdf': 'application/pdf',
     };
 
     const server = http.createServer((req, res) => {
-        let filePath = path.join(currentDir, req.url === '/' ? 'index.html' : req.url);
-        const ext = path.extname(filePath).toLowerCase();
-        const contentType = mimeTypes[ext] || 'application/octet-stream';
+        let rawPath = (req.url || '/').split('?')[0];
+        let decodedPath = '/';
 
-        fs.readFile(filePath, (err, content) => {
-            if (err) {
-                if (err.code === 'ENOENT') {
-                    res.writeHead(404, { 'Content-Type': 'text/plain' });
-                    res.end('404 Not Found');
-                } else {
-                    res.writeHead(500);
-                    res.end(`Server Error: ${err.code}`);
-                }
-            } else {
-                res.writeHead(200, { 'Content-Type': contentType });
-                res.end(content, 'utf-8');
+        try {
+            decodedPath = decodeURIComponent(rawPath);
+        } catch {
+            decodedPath = rawPath;
+        }
+
+        const relativePath = decodedPath === '/' ? defaultDocument : decodedPath.replace(/^\/+/, '');
+        let filePath = path.join(currentDir, relativePath);
+
+        fs.stat(filePath, (err, stats) => {
+            if (err || !stats.isFile()) {
+                res.writeHead(404, { 'Content-Type': 'text/html; charset=utf-8' });
+                res.end(`<h2>404 Not Found</h2><p>File <code>${relativePath}</code> does not exist.</p>`);
+                return;
             }
+
+            const ext = path.extname(filePath).toLowerCase();
+            const contentType = mimeTypes[ext] || 'application/octet-stream';
+
+            fs.readFile(filePath, (readErr, content) => {
+                if (readErr) {
+                    res.writeHead(500, { 'Content-Type': 'text/plain' });
+                    res.end(`Server Error: ${readErr.code}`);
+                } else {
+                    res.writeHead(200, { 'Content-Type': contentType });
+                    res.end(content);
+                }
+            });
         });
     });
 
     server.listen(port, () => {
         const url = `http://localhost:${port}`;
-        console.log(`${c.green}✔ Built-in Web Server live at:${c.reset} ${c.bold}${url}${c.reset}`);
+        console.log(`${c.green}✔ Built-in Web Server live at:${c.reset} ${c.bold}${url}${c.reset}\n`);
         if (autoOpen) openBrowser(url);
     });
 }
@@ -134,7 +156,7 @@ function openBrowser(url) {
     }
 }
 
-// --- COMMAND: STANDALONE PORT KILLER ---
+// --- SUBCOMMANDS ---
 
 async function handleKillCommand(targetPort) {
     const port = parseInt(targetPort, 10);
@@ -166,8 +188,6 @@ async function handleKillCommand(targetPort) {
     process.exit(0);
 }
 
-// --- COMMAND: CHECK COMMONLY USED PORTS ---
-
 async function handlePortsCheck() {
     const commonPorts = [3000, 3001, 4200, 5000, 5173, 8000, 8080, 8888];
     console.log(`\n${c.bold}⚡ RunPad Sentinel — Active Port Audit:${c.reset}\n`);
@@ -184,8 +204,6 @@ async function handlePortsCheck() {
     console.log('');
     process.exit(0);
 }
-
-// --- COMMAND: HELP MANUAL ---
 
 function showHelp() {
     console.log(`
@@ -216,12 +234,33 @@ ${c.bold}EXAMPLES:${c.reset}
     process.exit(0);
 }
 
-// --- MAIN ENGINE SCANNER & LAUNCHER ---
+// --- WORKSPACE SCANNER & RUNNER ---
 
 async function handleDevRun() {
     console.log(`${c.bold}${c.cyan}⚡ RunPad Engine v${getVersion()} — Scanning workspace...${c.reset}\n`);
 
+    // Protect runpad-cli root directory from self-execution
+    try {
+        const localPkg = JSON.parse(fs.readFileSync(path.join(currentDir, 'package.json'), 'utf8'));
+        if (localPkg.name === 'runpad-cli' && currentDir === path.resolve(__dirname, '..')) {
+            console.log(`${c.yellow}⚠️  You are inside the runpad-cli source directory.${c.reset}`);
+            console.log(`💡 To test RunPad, navigate to another project folder (e.g. React, Next.js, or HTML folder) and run 'runpad'.\n`);
+            return;
+        }
+    } catch {
+        // Not a package.json or invalid JSON
+    }
+
     const files = fs.readdirSync(currentDir);
+    const htmlFiles = files.filter((file) => {
+        if (!file.toLowerCase().endsWith('.html')) return false;
+        try {
+            return fs.statSync(path.join(currentDir, file)).isFile();
+        } catch {
+            return false;
+        }
+    });
+
     const isOpen = args.includes('--open') || args.includes('-o');
     const isHost = args.includes('--host') || args.includes('-h');
 
@@ -233,8 +272,9 @@ async function handleDevRun() {
     let runCommand = "";
     let targetPort = explicitPort || 0;
     let isStatic = false;
+    let defaultDocument = null;
 
-    // 1. Node / Vite / Next.js Framework Detection
+    // 1. Node / Vite / Next.js Detection
     if (files.includes('package.json')) {
         try {
             const pkgData = JSON.parse(fs.readFileSync(path.join(currentDir, 'package.json'), 'utf8'));
@@ -245,11 +285,12 @@ async function handleDevRun() {
                 targetPort = targetPort || 5173;
                 let flags = ['--open'];
                 if (isHost) flags.push('--host');
+                if (explicitPort) flags.push(`--port ${explicitPort}`);
                 runCommand = `npm run dev -- ${flags.join(' ')}`;
             } else if (deps.next) {
                 detectedType = "Next.js App";
                 targetPort = targetPort || 3000;
-                runCommand = "npm run dev";
+                runCommand = explicitPort ? `npx next dev -p ${explicitPort}` : "npm run dev";
             } else if (deps['@nestjs/core']) {
                 detectedType = "NestJS Backend";
                 targetPort = targetPort || 3000;
@@ -258,7 +299,18 @@ async function handleDevRun() {
                 const scripts = pkgData.scripts || {};
                 detectedType = "Node.js Application";
                 targetPort = targetPort || 3000;
-                runCommand = scripts.dev ? "npm run dev" : scripts.start ? "npm start" : "node index.js";
+
+                if (scripts.dev) {
+                    runCommand = "npm run dev";
+                } else if (scripts.start) {
+                    runCommand = "npm run start";
+                } else if (pkgData.main && fs.existsSync(path.join(currentDir, pkgData.main))) {
+                    runCommand = `node "${pkgData.main}"`;
+                } else if (fs.existsSync(path.join(currentDir, 'index.js'))) {
+                    runCommand = `node "index.js"`;
+                } else if (fs.existsSync(path.join(currentDir, 'server.js'))) {
+                    runCommand = `node "server.js"`;
+                }
             }
         } catch {
             detectedType = "Node.js Application";
@@ -272,24 +324,25 @@ async function handleDevRun() {
         targetPort = targetPort || 8080;
         runCommand = files.includes('pom.xml') ? "./mvnw spring-boot:run" : "./gradlew bootRun";
     }
-    // 3. .NET Core / C#
+    // 3. .NET Core
     else if (files.some(file => file.endsWith('.csproj') || file.endsWith('.sln'))) {
         detectedType = "C# / .NET Project";
         targetPort = targetPort || 5000;
         runCommand = "dotnet run";
     }
-    // 4. Python (FastAPI / Django / Flask)
+    // 4. Python
     else if (files.includes('manage.py')) {
         detectedType = "Python Django App";
         targetPort = targetPort || 8000;
-        runCommand = "python manage.py runserver";
+        runCommand = `python manage.py runserver ${explicitPort || 8000}`;
     } else if (files.includes('main.py') || files.includes('app.py')) {
         detectedType = "Python Application";
         targetPort = targetPort || 8000;
-        runCommand = "python main.py";
+        runCommand = files.includes('main.py') ? "python main.py" : "python app.py";
     }
     // 5. Static HTML Web
-    else if (files.includes('index.html')) {
+    else if (htmlFiles.length > 0) {
+        defaultDocument = htmlFiles.find(file => file.toLowerCase() === 'index.html') || htmlFiles[0];
         detectedType = "Static HTML/Web Project";
         targetPort = targetPort || 3000;
         isStatic = true;
@@ -298,13 +351,18 @@ async function handleDevRun() {
     console.log(`${c.dim}📂 Directory:${c.reset} ${currentDir}`);
     console.log(`${c.dim}🔍 Detected: ${c.reset} ${c.bold}${c.green}${detectedType}${c.reset}`);
 
+    if (isStatic) {
+        console.log(`${c.dim}📄 Available HTML:${c.reset} ${htmlFiles.join(', ')}`);
+        console.log(`${c.dim}🌐 Serving at /:${c.reset} ${c.bold}${defaultDocument}${c.reset}`);
+    }
+
     if (!runCommand && !isStatic) {
-        console.log(`\n${c.yellow}⚠️ No recognizable framework detected in this directory.${c.reset}`);
-        console.log(`💡 Tip: Apne project ke root folder me runpad run karein.\n`);
+        console.log(`\n${c.yellow}⚠️ No runnable project detected in this directory.${c.reset}`);
+        console.log(`💡 Tip: Open any frontend, backend, or HTML project folder and run 'runpad'.\n`);
         return;
     }
 
-    // Pre-flight Port Conflict Check & Sentinel Resolution
+    // Sentinel: Port Conflict Detection
     if (targetPort > 0) {
         const taken = await isPortTaken(targetPort);
         if (taken) {
@@ -328,16 +386,18 @@ async function handleDevRun() {
         }
     }
 
-    // Launch Engine
+    // Execution
     if (isStatic) {
-        serveStatic(targetPort, isOpen);
+        // Static sites auto-open browser by default unless specified
+        serveStatic(targetPort, true, defaultDocument);
     } else {
         console.log(`${c.dim}🚀 Command:  ${c.reset} ${c.bold}${runCommand}${c.reset}\n`);
 
         const child = spawn(runCommand, {
             shell: true,
             stdio: 'inherit',
-            cwd: currentDir
+            cwd: currentDir,
+            env: { ...process.env, __RUNPAD_ACTIVE__: 'true' }
         });
 
         child.on('error', (err) => {
@@ -355,7 +415,9 @@ async function handleDevRun() {
     }
 }
 
-// --- CLI ROUTER ---
+// --- CLI ROUTER (Strict Command Parsing) ---
+
+const validCommands = ['kill', 'ports', 'help', '--help', '-v', '--version'];
 
 if (command === 'kill') {
     handleKillCommand(args[1]);
@@ -365,6 +427,14 @@ if (command === 'kill') {
     showHelp();
 } else if (command === '-v' || command === '--version') {
     console.log(`v${getVersion()}`);
+} else if (command && !command.startsWith('-') && !validCommands.includes(command)) {
+    // Catches accidental typos like 'runpad link', 'runpad install'
+    console.log(`\n${c.red}❌ Unknown command: "${command}"${c.reset}`);
+    if (['link', 'install', 'i', 'build', 'test', 'init', 'publish'].includes(command)) {
+        console.log(`💡 Did you mean: ${c.bold}${c.green}npm ${command}${c.reset} ?`);
+    }
+    console.log(`Run ${c.cyan}runpad --help${c.reset} to see all supported options.\n`);
+    process.exit(1);
 } else {
     handleDevRun();
 }

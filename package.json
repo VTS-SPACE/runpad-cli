@@ -1,6 +1,6 @@
 {
   "name": "runpad-cli",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Universal Dev Runner & Port Sentinel",
   "main": "bin/index.js",
   "bin": {
