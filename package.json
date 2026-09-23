@@ -1,0 +1,18 @@
+{
+  "name": "runpad-cli",
+  "version": "0.1.0",
+  "description": "Universal Dev Runner & Port Sentinel",
+  "main": "bin/index.js",
+  "bin": {
+    "runpad": "./bin/index.js"
+  },
+  "keywords": [
+    "runner",
+    "devtools",
+    "ports",
+    "fullstack",
+    "orchestrator"
+  ],
+  "author": "VTS SPACE",
+  "license": "MIT"
+}
